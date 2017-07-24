@@ -1,7 +1,7 @@
 # 对double-free类型漏洞的较通用利用方法
 
 ### 背景
-由于系统在kfree一个对象时, 将前一个释放的空间的地址保存在将释放的空间的首地址
+由于系统在kfree一个对象时, 将前一个释放的空间的地址保存在将释放的空间的首地址.
 如果执行如下代码:
 ```c
 kfree(ptr0);
@@ -10,15 +10,15 @@ kfree(ptr1);
 kfree(ptr2);
 ```
 那么会得到`*(unsigned long *)ptr1 == ptr1; *(unsigned long *)ptr2 = ptr1;`
-两个可以被重新申请的空间的首地址数据相同
+两个可以被重新申请的空间的首地址数据相同.
 ```c
 kmalloc(size, ...);
 kmalloc(size, ...);
 ...
 ```
-可以得到指向同一空间的两个对象
-什么样的对象可以用来进行利用? 两个对象没有特定大小, 一个可以随意写入, 一个包含指针
-测试的所用的需要填充的slab对象为kmalloc-8192, 内核版本为3.10.x, cve-2017-2636, [POC](https://github.com/snorez/exploits/blob/master/cve-2017-2636/cve-2017-2636.c)
+可以得到指向同一空间的两个对象.
+什么样的对象可以用来进行利用? 两个对象没有特定大小, 一个可以随意写入, 一个包含指针.
+测试的所用的需要填充的slab对象为kmalloc-8192, 内核版本为3.10.x, cve-2017-2636, [测试POC](https://github.com/snorez/exploits/blob/master/cve-2017-2636/cve-2017-2636.c)
 
 ### 对象0: encrypted key
 ```c
@@ -37,7 +37,7 @@ struct encrypted_key_payload {
 	u8 payload_data[0];	/* payload data + datablob + hmac */
 };
 ```
-这个对象基础大小为0x48, 先看看对象如何申请的, 在`encrypted_key_alloc`函数中
+这个对象基础大小为0x48, 先看看对象如何申请的, 在`encrypted_key_alloc`函数中.
 ```c
 static struct encrypted_key_payload *encrypted_key_alloc(struct key *key,
 							 const char *format,
@@ -80,8 +80,8 @@ static struct encrypted_key_payload *encrypted_key_alloc(struct key *key,
 }
 ```
 对于encrypted key的用法, 可以参考Documentations/security/keys-trusted-encrypted.txt
-这里简单说一下用到的payload的格式
-`"new default user:user_key_desc payload_len"`
+这里简单说一下用到的payload的格式.
+`"new default user:user_key_desc payload_len"`.
 函数参数中的`datalen`指向`payload_len`, `master_desc`指向`user:user_key_desc`, `format`指向`default`, `payload`最大为4096, 也即`encrypted_key_payload`对象最大的时候会取kmalloc-8192.
 ***因此这个对象可以落在kmalloc-96 - kmalloc-8192区域***
 
@@ -144,8 +144,8 @@ out:
 ```
 
 ### 用encrypted_key_payload 来任意地址读
-在double-free环境中, 另外一个对象覆盖了encrypted_key_payload的数据
-在`encrypted_read`函数中, 会读取`payload->format` `payload->master_desc` `payload->datalen` `payload->iv`指向的数据
+在double-free环境中, 另外一个对象覆盖了encrypted_key_payload的数据.
+在`encrypted_read`函数中, 会读取`payload->format` `payload->master_desc` `payload->datalen` `payload->iv`指向的数据.
 ```c
 static long encrypted_read(const struct key *key, char __user *buffer,
 			   size_t buflen)
@@ -285,29 +285,29 @@ out:
 ```
 从代码里面可以看出, write_buf的大小也是可控的, 大小[2048, 65536].
 搜索代码, 得到`TTY_NO_WRITE_SPLIT`标志在n_hdlc.c中有路径会将其置位. 而write_buf指向的空间数据可以通过write系统调用来实现.
-***NOTE:*** 需要注意的是, 用open打开tty时需要调用O_NONBLOCK标志
+***NOTE:*** 需要注意的是, 用open打开tty时需要调用O_NONBLOCK标志.
 
 ### 利用步骤
-结合encrypted_key_payload和tty_struct.write_buf, 完成利用
-+ 准备工作
-	+ 堆喷, 准备大量的所需大小的对象, 放入内核空间, 便于后续的检测反馈
-	+ 一个user-type的key, encrypted key需要这个
-	+ 一个或多个encrypted的key, 消耗key的总大小, 便于后续的检测反馈
-+ 触发double-free
+结合encrypted_key_payload和tty_struct.write_buf, 完成利用.
++ 准备工作.
+	+ 堆喷, 准备大量的所需大小的对象, 放入内核空间, 便于后续的检测反馈.
+	+ 一个user-type的key, encrypted key需要这个.
+	+ 一个或多个encrypted的key, 消耗key的总大小, 便于后续的检测反馈.
++ 触发double-free.
 + (交替)申请write_buf, encrypted_key_payload对象(使用encrypted_update函数).
-	这个可能需要根据漏洞具体的环境来看申请的对象的顺序
-+ 检测`encrypted_update`的返回值, 如果为EINVAL, 则判断此时的内核空间中两个对象重叠
-+ 不停的调用`encrypted_update`检测合适的master_desc的位置
+	这个可能需要根据漏洞具体的环境来看申请的对象的顺序.
++ 检测`encrypted_update`的返回值, 如果为EINVAL, 则判断此时的内核空间中两个对象重叠.
++ 不停的调用`encrypted_update`检测合适的master_desc的位置.
 	由于在read函数中需要master_desc的值, 所以我们首先需要遍历内核空间, 找到所需要的字串.
-	所以我们设置好`encrypted_update`的参数(通过write_buf), 使调用过程如下
-	`encrypted_update -> encrypted_key_alloc -> key_payload_reserve`
-	当其返回EDQUOT时, 即找到对应的master_desc
-	在准备工作中的堆喷和消耗key的总大小, 即是为了找到这个master_desc
+	所以我们设置好`encrypted_update`的参数(通过write_buf), 使调用过程如下.
+	`encrypted_update -> encrypted_key_alloc -> key_payload_reserve`.
+	当其返回EDQUOT时, 即找到对应的master_desc.
+	在准备工作中的堆喷和消耗key的总大小, 即是为了找到这个master_desc.
 + 此时已经具备任意地址读的能力. 检测init_task (此过程未测试), 或者检测相应的task_struct结构中的comm字段, 找到目标进程的task_struct地址, 然后获取cred地址.
 + 调用`encrypted_destroy`, 完成提权.
 	这个函数的调用需要先`keyctl_revoke`, 它只是将key进行一下标记, 然后调用gc.
 	在测试过程中发现, 在`keyctl_revoke`之后, 立即调用add_key来申请一个与需要destroy的key相同的payload, 会立即触发`encrypted_destory`函数.
 
 ### 总结
-+ 利用的主要对象为encrypted_key_payload, 适用大小为[96-8192]的对象, POC中只进行了kmalloc-8192的测试
++ 利用的主要对象为encrypted_key_payload, 适用大小为[96-8192]的对象, POC中只进行了kmalloc-8192的测试.
 + write_buf可以应用在目标对象为[2048, 4096, 8192]大小时.
