@@ -20,7 +20,7 @@ kmalloc(size, ...);
 什么样的对象可以用来进行利用? 两个对象没有特定大小, 一个可以随意写入, 一个包含指针
 测试的所用的需要填充的slab对象为kmalloc-8192, 内核版本为3.10.x, cve-2017-2636, [POC](https://github.com/snorez/exploits/blob/master/cve-2017-2636/cve-2017-2636.c)
 
-### encrypted key
+### 对象0: encrypted key
 ```c
 struct encrypted_key_payload {
 	struct rcu_head rcu;
@@ -85,7 +85,7 @@ static struct encrypted_key_payload *encrypted_key_alloc(struct key *key,
 函数参数中的`datalen`指向`payload_len`, `master_desc`指向`user:user_key_desc`, `format`指向`default`, `payload`最大为4096, 也即`encrypted_key_payload`对象最大的时候会取kmalloc-8192.
 ***因此这个对象可以落在kmalloc-96 - kmalloc-8192区域***
 
-### encrypted key的系统限制 以及 对应的策略
+### 使用encrypted key的系统限制 以及 对应的策略
 在/proc/sys/kernel/keys/中, 保存着当前系统普通用户能申请的key数以及总大小,限制了这个对象的喷的总数.
 在`encrypted_update`函数中, 也调用了`encrypted_key_alloc`函数, 然后会释放之前申请的空间, 可以利用这个函数来进行交替性的堆喷.
 ```c
@@ -143,7 +143,7 @@ out:
 }
 ```
 
-### encrypted_key_payload 用来任意地址读
+### 用encrypted_key_payload 来任意地址读
 在double-free环境中, 另外一个对象覆盖了encrypted_key_payload的数据
 在`encrypted_read`函数中, 会读取`payload->format` `payload->master_desc` `payload->datalen` `payload->iv`指向的数据
 ```c
@@ -207,7 +207,7 @@ out:
 }
 ```
 
-### encrypted key 提权
+### 用encrypted key 提权
 在`encrypted_destroy`函数中, 会将区域清0, 用此可完成提权.
 ```c
 static void encrypted_destroy(struct key *key)
@@ -222,7 +222,7 @@ static void encrypted_destroy(struct key *key)
 }
 ```
 
-### tty_struct.write_buf
+### 对象1: tty_struct.write_buf
 ```c
 struct tty_struct {
 	...
