@@ -9,7 +9,7 @@ kfree(ptr1);
 kfree(ptr1);
 kfree(ptr2);
 ```
-那么会得到`*(unsigned long *)ptr1 == ptr1; *(unsigned long *)ptr2 = ptr1;`
+那么会得到`*(unsigned long *)ptr1 = ptr1; *(unsigned long *)ptr2 = ptr1;`
 两个可以被重新申请的空间的首地址数据相同.
 ```c
 kmalloc(size, ...);
@@ -82,8 +82,8 @@ static struct encrypted_key_payload *encrypted_key_alloc(struct key *key,
 对于encrypted key的用法, 可以参考Documentations/security/keys-trusted-encrypted.txt
 这里简单说一下用到的payload的格式.
 `"new default user:user_key_desc payload_len"`.
-函数参数中的`datalen`指向`payload_len`, `master_desc`指向`user:user_key_desc`, `format`指向`default`, `payload`最大为4096, 也即`encrypted_key_payload`对象最大的时候会取kmalloc-8192.
-***因此这个对象可以落在kmalloc-96 - kmalloc-8192区域***
+函数参数中的`datalen`指向`payload_len`, `master_desc`指向`user:user_key_desc`, `format`指向`default`, `payload`最大为4096, 也即`encrypted_key_payload`对象最大的时候会取kmalloc-8192. 最小的时候由于加上了HASH_SIZE+1, 最小0x48+32+1=0x69
+***因此这个对象可以落在 ~~kmalloc-96~~ kmalloc-128 - kmalloc-8192区域***
 
 ### 使用encrypted key的系统限制 以及 对应的策略
 在/proc/sys/kernel/keys/中, 保存着当前系统普通用户能申请的key数以及总大小,限制了这个对象的喷的总数.
@@ -206,6 +206,33 @@ out:
 	return ret;
 }
 ```
+```c
+static char *datablob_format(struct encrypted_key_payload *epayload,
+			     size_t asciiblob_len)
+{
+	char *ascii_buf, *bufp;
+	u8 *iv = epayload->iv;
+	int len;
+	int i;
+
+	ascii_buf = kmalloc(asciiblob_len + 1, GFP_KERNEL);
+	if (!ascii_buf)
+		goto out;
+
+	ascii_buf[asciiblob_len] = '\0';
+
+	/* copy datablob master_desc and datalen strings */
+	len = sprintf(ascii_buf, "%s %s %s ", epayload->format,
+		      epayload->master_desc, epayload->datalen);
+
+	/* convert the hex encoded iv, encrypted-data and HMAC to ascii */
+	bufp = &ascii_buf[len];
+	for (i = 0; i < (asciiblob_len - len) / 2; i++)
+		bufp = hex_byte_pack(bufp, iv[i]);
+out:
+	return ascii_buf;
+}
+```
 
 ### 用encrypted key 提权
 在`encrypted_destroy`函数中, 会将区域清0, 用此可完成提权.
@@ -285,7 +312,7 @@ out:
 ```
 从代码里面可以看出, write_buf的大小也是可控的, 大小[2048, 65536].
 搜索代码, 得到`TTY_NO_WRITE_SPLIT`标志在n_hdlc.c中有路径会将其置位. 而write_buf指向的空间数据可以通过write系统调用来实现.
-***NOTE:*** 需要注意的是, 用open打开tty时需要调用O_NONBLOCK标志.
+***NOTE:*** 需要注意的是, 用open打开tty时需要加上O_NONBLOCK标志.
 
 ### 利用步骤
 结合encrypted_key_payload和tty_struct.write_buf, 完成利用.
@@ -309,6 +336,6 @@ out:
 	在测试过程中发现, 在`keyctl_revoke`之后, 立即调用add_key来申请一个与需要destroy的key相同的payload, 会立即触发`encrypted_destory`函数.
 
 ### 总结
-+ 利用的主要对象为encrypted_key_payload, 适用大小为[96-8192]的对象, POC中只进行了kmalloc-8192的测试.
++ 利用的主要对象为encrypted_key_payload, 适用大小为~~[96-8192]~~ [128-8192]的对象, POC中只进行了kmalloc-8192的测试.
 + write_buf可以应用在目标对象为[2048, 4096, 8192]大小时.
 + 依赖于slab的优先申请最近释放的块的特性.
