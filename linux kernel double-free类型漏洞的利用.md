@@ -18,7 +18,7 @@ kmalloc(size, ...);
 ```
 可以得到指向同一空间的两个对象.
 什么样的对象可以用来进行利用? 两个对象没有特定大小, 一个可以随意写入, 一个包含指针.
-测试的所用的需要填充的slab对象为kmalloc-8192, 内核版本为3.10.x, cve-2017-2636, [测试POC](https://github.com/snorez/exploits/blob/master/cve-2017-2636/cve-2017-2636.c)
+测试的所用的需要填充的slab对象为kmalloc-8192, 内核版本为3.10.x, cve-2017-2636, [测试POC](https://github.com/snorez/exploits/blob/master/cve-2017-2636/cve-2017-2636.c) [Alexander Popov的文档](https://a13xp0p0v.github.io/2017/03/24/CVE-2017-2636.html)
 
 ### 对象0: encrypted key
 ```c
