@@ -1,4 +1,6 @@
 # 对linux kernel double-free类型漏洞的较通用利用方法
++ UPDATE Mon Oct  9 10:07:00 HKT 2017
+	[upstream对double free类型漏洞的修补, 来自SHA2017](http://blog.ptsecurity.com/2017/08/linux-block-double-free.html)
 
 ### 背景
 由于系统在kfree一个对象时, 将前一个释放的空间的地址保存在将释放的空间的首地址.
@@ -339,3 +341,4 @@ out:
 + 利用的主要对象为encrypted_key_payload, 适用大小为~~[96-8192]~~ [128-8192]的对象, POC中只进行了kmalloc-8192的测试.
 + write_buf可以应用在目标对象为[2048, 4096, 8192]大小时.
 + 依赖于slab的优先申请最近释放的块的特性.
++ KSPP中的CONFIG_SLAB_FREELIST_HARDENED应该已经加固了这个特性
