@@ -1,4 +1,7 @@
 # 对linux kernel double-free类型漏洞的较通用利用方法
++ update Sat Nov 25 19:25:45 HKT 2017
+	+ [对encrypted_key的代码修改: KEYS: encrypted: sanitize all key material](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=a9dd74b2)
+	+ CONFIG_SLAB_FREELIST_HARDENED作用并不明显, 仍然有方法利用该种类型漏洞
 + UPDATE Mon Oct  9 10:07:00 HKT 2017
 	[upstream对double free类型漏洞的修补, 来自SHA2017](http://blog.ptsecurity.com/2017/08/linux-block-double-free.html)
 
@@ -237,7 +240,7 @@ out:
 ```
 
 ### 用encrypted key 提权
-在`encrypted_destroy`函数中, 会将区域清0, 用此可完成提权.
+~~在`encrypted_destroy`函数中, 会将区域清0, 用此可完成提权.~~
 ```c
 static void encrypted_destroy(struct key *key)
 {
@@ -338,7 +341,7 @@ out:
 	在测试过程中发现, 在`keyctl_revoke`之后, 立即调用add_key来申请一个与需要destroy的key相同的payload, 会立即触发`encrypted_destory`函数.
 
 ### 总结
-+ 利用的主要对象为encrypted_key_payload, 适用大小为~~[96-8192]~~ [128-8192]的对象, POC中只进行了kmalloc-8192的测试.
++ 利用的主要对象为encrypted_key_payload, 适用大小为 ~~[96-8192]~~ [128-8192]的对象, POC中只进行了kmalloc-8192的测试.
 + write_buf可以应用在目标对象为[2048, 4096, 8192]大小时.
 + 依赖于slab的优先申请最近释放的块的特性.
 + KSPP中的CONFIG_SLAB_FREELIST_HARDENED应该已经加固了这个特性
