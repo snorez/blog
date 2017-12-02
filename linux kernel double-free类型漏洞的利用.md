@@ -1,7 +1,17 @@
 # 对linux kernel double-free类型漏洞的较通用利用方法
++ update Wed Nov 29 16:39:01 HKT 2017
+	+ linux kernel 4.14 released this month;
+	+ [Kees Cook: "a bunch of security features I'm excited about"](https://outflux.net/blog/archives/2017/11/14/security-things-in-linux-v4-14/)
+	+ [relevant PATCH 0: add a naive detection of double free or corruption](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ce6fa91b93630396ca220c33dd38ffc62686d499)
+	这个补丁, 在进行连续的kfree的时候会起作用终止当前进程. 但是如果在连续的kfree之间其他进程kfree了相邻的一些对象, 导致page->freelist改写, 补丁无作用.
+	+ [relevant PATCH 1: add SLUB free list pointer obfuscation](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=2482ddec)
+	这个补丁, 将写入对象首地址(s->offset=0)的数据进行异或, 在申请对象的时候进行逆运算得到下一个申请的对象的位置.
+	+ [relevant PATCH 2: prefetch next freelist pointer in slab_alloc](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=0ad9500e1)
+	这个补丁, 会在申请一个对象的时候, 得到下一个可以申请的对象的位置, 同时对下一个对象保存的异或数据进行逆运算, 然后检测那个位置是否合法.
+	+ 这几个补丁, 对SLUB的freelist进行了加强. 导致此文的方法不再适用.
+
 + update Sat Nov 25 19:25:45 HKT 2017
 	+ [对encrypted_key的代码修改: KEYS: encrypted: sanitize all key material](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=a9dd74b2)
-	+ CONFIG_SLAB_FREELIST_HARDENED作用并不明显, 仍然有方法利用该种类型漏洞
 + UPDATE Mon Oct  9 10:07:00 HKT 2017
 	[upstream对double free类型漏洞的修补, 来自SHA2017](http://blog.ptsecurity.com/2017/08/linux-block-double-free.html)
 
