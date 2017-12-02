@@ -1,13 +1,14 @@
 # 对Linux Kernel 4.14.0的SLAB_FREELIST_HARDENED加固实现的部分分析
 
 在之前的文档[linux kernel double-free类型漏洞的利用](https://github.com/snorez/blog/blob/master/linux%20kernel%20double-free%E7%B1%BB%E5%9E%8B%E6%BC%8F%E6%B4%9E%E7%9A%84%E5%88%A9%E7%94%A8.md)中提到了SLUB的一个特性(FILO), 在slub中实现了一个单向链表, 每个节点的下一个元素保存在这个节点指向的内存的一个偏移处(kmem_cache->offset). 在double free环境中, 导致这个链表出现一个环, 于是后续的申请能得到指向同一个空间的两个对象.
+
 本文会介绍一种由补丁引起的另外一种可利用的思路(只适用一种场景).
 
 ---
 ### 本文讨论的相关补丁
 + PATCH 0: [add a naive detection of double free or corruption](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ce6fa91b93630396ca220c33dd38ffc62686d499)
 + PATCH 1: [add SLUB free list pointer obfuscation](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=2482ddec)
-Shawn: SLAB_FREELIST_HARDENED中最重要的特性, 来自于2016年PaX/Grsecurity针对v4.8内核的代码
+	Shawn: SLAB_FREELIST_HARDENED中最重要的特性, 来自于2016年PaX/Grsecurity针对v4.8内核的代码
 + PATCH 2: [prefetch next freelist pointer in slab_alloc](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=0ad9500e1)
 
 ##### PATCH 0
@@ -16,7 +17,9 @@ Shawn: SLAB_FREELIST_HARDENED中最重要的特性, 来自于2016年PaX/Grsecuri
 BUG_ON(object == fp);
 ```
 在kfree的时候, object为将要释放的地址, fp来源于page结构体中的freelist成员, freelist指向当前可用的空间的地址.
+
 BUG_ON检测的条件就是如果freelist指向了当前要释放的空间, 即产生崩溃(CONFIG_PANIC_ON_OOPS)/终止触发的进程(no panic_on_oops)
+
 对这个补丁后面会详细说明.
 
 ##### PATCH 1
@@ -68,9 +71,13 @@ freelist = a
 *(unsigned long *)b = a;
 ```
 按照之前的利用思路, 那么当
+
 申请到a对象的时候, freelist=b
+
 申请到b对象的时候, freelist=a?
+
 这个地方其实就会出问题了. 由于我们并不能保证***申请的对象不写任何空间***, 尤其是(s->offset)位置的数据. 假设我们用kzalloc函数申请到了a, 在申请对象b的时候
+
 在函数slab_alloc_node中
 ```c
 static __always_inline void *slab_alloc_node(struct kmem_cache *s,
@@ -104,19 +111,29 @@ static __always_inline void *slab_alloc_node(struct kmem_cache *s,
 }
 ```
 在prefetch_freepointer中, object为a, 但是此时`*(unsigned long *)a`的值为0.
+
 然后在freelist_ptr时, ptr为保存在a中的xor值(此时为0), ptr_addr值为a, 运算得到下一个对象的地址就乱了, 通常会是一个非法地址.
+
 至此, 这种利用方法被这两种方法挡住了.
 
 
 ### 回到PATCH 0
 **由于多数发行版未开启panic_on_oops, 下面的讨论只在没有panic_on_oops情况下有效**
+
 这个补丁原本是用于检测一些double free的bug的. 但是它存在一些竞争, 导致一些意外情况.
+
 补丁只能检测在一个线程中连续执行`kfree(a) kfree(a)`的情况, 即类似cve-2017-2636的情况
+
 回到补丁上, fp是freelist的值, object是当前准备释放的地址.
+
 如果在第一次kfree(a)之后, 另外的线程获得了执行, 然后执行kfree(b)(b需要相当接近a)修改了freelist的值, 那么就可以造成类似`kfree(a) kfree(b) ... kfree(a)`的情况, 补丁并没起作用.
+
 同样, 在第一次kfree(a)之后, 另外的线程获得了执行, 然后执行了kmalloc修改了freelist的值, 那么就如同`kfree(a) kmalloc()->a, kfree(a), kmalloc()->a`的情况. ***获得指向同一个地址的两个对象***
+
 问题在于, 补丁使用了BUG_ON, 使得用户空间程序可以检测内核的某种状态, 当其他的线程能竞争成功的时候, 触发double-free的线程得以成功退出.
+
 那么也就成了, 这个补丁原本是为了检测什么类型的漏洞, 导致这种漏洞是有可能来利用的, 毕竟它允许我们一直竞争下去直到成功竞争..(测试中kfree竞争kfree相对比较容易, 通常几秒得到. 用kmalloc来竞争kfree, 比较难得到).
+
 
 ##### 一个猜想
 在未开启panic_on_oops的场景下, 内核代码中使用了挺多的BUG_ON, 会不会有其他的检测的condition会存在类似的竞争情况呢?
