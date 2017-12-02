@@ -8,7 +8,8 @@
 ### 本文讨论的相关补丁
 + PATCH 0: [add a naive detection of double free or corruption](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=ce6fa91b93630396ca220c33dd38ffc62686d499)
 + PATCH 1: [add SLUB free list pointer obfuscation](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=2482ddec)
-Shawn: SLAB_FREELIST_HARDENED中最重要的特性, 来自于2016年PaX/Grsecurity针对v4.8内核的代码
+
+	Shawn: SLAB_FREELIST_HARDENED中最重要的特性, 来自于2016年PaX/Grsecurity针对v4.8内核的代码
 + PATCH 2: [prefetch next freelist pointer in slab_alloc](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=0ad9500e1)
 
 ##### PATCH 0
